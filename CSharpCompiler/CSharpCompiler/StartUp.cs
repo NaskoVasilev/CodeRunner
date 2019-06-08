@@ -32,7 +32,7 @@ namespace CSharpCompiler
 			{
 				Console.WriteLine("The application was run seccessfully!");
 				Console.WriteLine(outputResult.Output);
-				Console.WriteLine("Is test correct: " + outputResult.Output.Trim() == expectedOutput.Trim());
+				Console.WriteLine($"Is test correct: {outputResult.Output.Trim() == expectedOutput}");
 			}
 			else
 			{
