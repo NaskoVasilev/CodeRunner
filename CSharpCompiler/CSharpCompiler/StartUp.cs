@@ -10,11 +10,16 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace CSharpCompiler
 {
 	public class StartUp
 	{
+		private const int ProcessMaxRunningTime = 10000;
+		private const int TimeLimit = 100;
+		private const int MemoryLimit = 5000000;
+
 		public static void Main(string[] args)
 		{
 			string input = "Pesho\r\n15\r\nPlovdiv";
@@ -26,19 +31,51 @@ namespace CSharpCompiler
 			string assemblyName = "Program";
 			CSharpCompilation compilation = BuildCSharpCompilation(sourceCode, assemblyName);
 
-			OutputResult outputResult = ProcessResult(compilation, input, assemblyName);
+			string outputDllName = assemblyName + ".dll";
+			string dllFilePath = new FileInfo(outputDllName).FullName;
+			string workingDirectory = new FileInfo(outputDllName).DirectoryName;
+			EmitResult emitResult = compilation.Emit(outputDllName);
+			string runtimeConfigJsonFileContent = GenerateRuntimeConfigJsonFile();
+			string runtimeConfigJsonFilePath = workingDirectory + "\\" + assemblyName + ".runtimeconfig.json";
+			File.WriteAllText(runtimeConfigJsonFilePath, runtimeConfigJsonFileContent);
 
-			if (outputResult.IsSuccesfull)
+			if (!emitResult.Success)
+			{
+				StringBuilder errors = new StringBuilder();
+
+				IEnumerable<Diagnostic> failures = emitResult.Diagnostics
+					.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+				foreach (Diagnostic diagnostic in failures)
+				{
+					errors.AppendLine($"{diagnostic.Location.GetLineSpan()} {diagnostic.GetMessage()}");
+				}
+
+				Console.WriteLine("Compile time error");
+				Console.WriteLine(errors.ToString());
+				return;
+			}
+
+			ProcessExecutionResult processExecutionResult = ProcessResult(input, dllFilePath).GetAwaiter().GetResult();
+
+			if (processExecutionResult.IsSuccesfull && processExecutionResult.Type == ProcessExecutionResultType.Success)
 			{
 				Console.WriteLine("The application was run seccessfully!");
-				Console.WriteLine(outputResult.Output);
-				Console.WriteLine($"Is test correct: {outputResult.Output.Trim() == expectedOutput}");
+				Console.WriteLine(processExecutionResult.ReceivedOutput);
+				Console.WriteLine($"Is test correct: {processExecutionResult.ReceivedOutput.Trim() == expectedOutput}");
 			}
 			else
 			{
 				Console.WriteLine("Some errors occured!");
-				Console.WriteLine(outputResult.Errors);
+				Console.WriteLine(processExecutionResult.ErrorOutput);
 			}
+
+			Console.WriteLine("Process statistics");
+			Console.WriteLine($"Exit code: {processExecutionResult.ExitCode}");
+			Console.WriteLine($"Memory Used: {processExecutionResult.MemoryUsed}");
+			Console.WriteLine($"Processor time used: {processExecutionResult.TotalProcessorTime}");
+			Console.WriteLine($"Working time: {processExecutionResult.TimeWorked}");
+			Console.WriteLine($"Execution Type: {processExecutionResult.Type}");
 		}
 
 		private static CSharpCompilation BuildCSharpCompilation(string sourceCode, string assemblyName)
@@ -62,57 +99,61 @@ namespace CSharpCompiler
 			return compilation;
 		}
 
-		private static OutputResult ProcessResult(CSharpCompilation compilation, string input, string assemblyName)
+		private static async Task<ProcessExecutionResult> ProcessResult(string input, string dllFilePath)
 		{
-			string outputDllName = assemblyName + ".dll";
-			string dllFilePath = new FileInfo(outputDllName).FullName;
-			string workingDirectory = new FileInfo(outputDllName).DirectoryName;
-			EmitResult emitResult = compilation.Emit(outputDllName);
-			string runtimeConfigJsonFileContent =  GenerateRuntimeConfigJsonFile();
-			string runtimeConfigJsonFilePath = workingDirectory + "\\" + assemblyName + ".runtimeconfig.json";
-			File.WriteAllText(runtimeConfigJsonFilePath, runtimeConfigJsonFileContent);
-
-			if(!emitResult.Success)
-			{
-				StringBuilder errors = new StringBuilder();
-
-				IEnumerable<Diagnostic> failures = emitResult.Diagnostics
-					.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
-
-				foreach (Diagnostic diagnostic in failures)
-				{
-					errors.AppendLine($"{diagnostic.Location.GetLineSpan()} {diagnostic.GetMessage()}");
-				}
-
-				return new OutputResult { Errors = errors.ToString().TrimEnd() };
-			}
-
+			ProcessExecutionResult processExecutionResult = new ProcessExecutionResult();
 			string commandPromptArgument = @"/C dotnet " + dllFilePath;
 
-			try
+			using (Process process = new Process())
 			{
-				using (Process process = new Process())
+				process.StartInfo.FileName = "cmd.exe";
+				process.StartInfo.Arguments = commandPromptArgument;
+				process.StartInfo.RedirectStandardInput = true;
+				process.StartInfo.RedirectStandardOutput = true;
+				process.StartInfo.RedirectStandardError = true;
+				process.StartInfo.CreateNoWindow = true;
+				process.StartInfo.UseShellExecute = false;
+
+				process.Start();
+				process.PriorityClass = ProcessPriorityClass.High;
+				await process.StandardInput.WriteLineAsync(input);
+				await process.StandardInput.FlushAsync();
+				process.StandardInput.Close();
+				processExecutionResult.MemoryUsed = process.PrivateMemorySize64;
+				bool exited = process.WaitForExit(ProcessMaxRunningTime);
+
+				if (!exited)
 				{
-					process.StartInfo.FileName = "cmd.exe";
-					process.StartInfo.Arguments = commandPromptArgument;
-					process.StartInfo.RedirectStandardInput = true;
-					process.StartInfo.RedirectStandardOutput = true;
-					process.StartInfo.CreateNoWindow = true;
-					process.StartInfo.UseShellExecute = false;
-
-					process.Start();
-					process.StandardInput.WriteLine(input);
-					process.StandardInput.Flush();
-					process.StandardInput.Close();
-					process.WaitForExit();
-
-					string output = process.StandardOutput.ReadToEnd();
-					return new OutputResult { Output = output };
+					process.Kill();
+					processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
 				}
-			}
-			catch(Exception ex)
-			{
-				return new OutputResult { Errors = ex.Message };
+
+				string output = await process.StandardOutput.ReadToEndAsync();
+				string errors = await process.StandardError.ReadToEndAsync();
+
+				processExecutionResult.ErrorOutput = errors;
+				processExecutionResult.ReceivedOutput = output;
+				processExecutionResult.ExitCode = process.ExitCode;
+				processExecutionResult.TimeWorked = process.ExitTime - process.StartTime;
+				processExecutionResult.PrivilegedProcessorTime = process.PrivilegedProcessorTime;
+				processExecutionResult.UserProcessorTime = process.UserProcessorTime;
+
+				if (processExecutionResult.TotalProcessorTime.TotalMilliseconds > TimeLimit)
+				{
+					processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
+				}
+
+				if (!string.IsNullOrEmpty(processExecutionResult.ErrorOutput))
+				{
+					processExecutionResult.Type = ProcessExecutionResultType.RunTimeError;
+				}
+
+				if (processExecutionResult.MemoryUsed > MemoryLimit)
+				{
+					processExecutionResult.Type = ProcessExecutionResultType.MemoryLimit;
+				}
+
+				return processExecutionResult;
 			}
 		}
 

@@ -1,0 +1,37 @@
+﻿using System;
+
+namespace CSharpCompiler
+{
+	public class ProcessExecutionResult
+	{
+		public ProcessExecutionResult()
+		{
+			this.ReceivedOutput = string.Empty;
+			this.ErrorOutput = string.Empty;
+			this.ExitCode = 0;
+			this.Type = ProcessExecutionResultType.Success;
+			this.TimeWorked = default(TimeSpan);
+			this.MemoryUsed = 0;
+		}
+
+		public string ReceivedOutput { get; set; }
+
+		public string ErrorOutput { get; set; }
+
+		public int ExitCode { get; set; }
+
+		public ProcessExecutionResultType Type { get; set; }
+
+		public TimeSpan TimeWorked { get; set; }
+
+		public TimeSpan PrivilegedProcessorTime { get; set; }
+
+		public TimeSpan UserProcessorTime { get; set; }
+
+		public long MemoryUsed { get; set; }
+
+		public TimeSpan TotalProcessorTime => this.PrivilegedProcessorTime + this.UserProcessorTime;
+
+		public bool IsSuccesfull => string.IsNullOrEmpty(ErrorOutput);
+	}
+}
