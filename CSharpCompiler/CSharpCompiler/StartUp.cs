@@ -14,180 +14,205 @@ using System.Threading.Tasks;
 
 namespace CSharpCompiler
 {
-	public class StartUp
-	{
-		private const int ProcessMaxRunningTime = 10000;
-		private const int TimeLimit = 100;
-		private const int MemoryLimit = 5000000;
+    public class StartUp
+    {
+        private const int ProcessMaxRunningTime = 10000;
+        private const int TimeLimit = 100;
+        private const int MemoryLimit = 5000000;
 
-		public static void Main(string[] args)
-		{
-			string input = "Pesho\r\n15\r\nPlovdiv";
-			string expectedOutput = $"I am Pesho - 15 years old. I am from Plovdiv.";
+        public static void Main(string[] args)
+        {
+            Console.WriteLine("Enter 'zip' if you want to test code from zip file or 'cs' if you want to test only one .cs file");
+            string typeOfSourceCode = Console.ReadLine();
 
-			string fileName = "Program.cs";
-			string filePath = $"../../../../Test/{fileName}";
-			string sourceCode = GetCSharpTestCode(filePath);
-			string assemblyName = "Program";
-			CSharpCompilation compilation = BuildCSharpCompilation(sourceCode, assemblyName);
+            CSharpCompilation compilation = null;
+            string assemblyName = "Program";
+            string input = "";
+            string expectedOutput = "";
 
-			string outputDllName = assemblyName + ".dll";
-			string dllFilePath = new FileInfo(outputDllName).FullName;
-			string workingDirectory = new FileInfo(outputDllName).DirectoryName;
-			EmitResult emitResult = compilation.Emit(outputDllName);
-			string runtimeConfigJsonFileContent = GenerateRuntimeConfigJsonFile();
-			string runtimeConfigJsonFilePath = workingDirectory + "\\" + assemblyName + ".runtimeconfig.json";
-			File.WriteAllText(runtimeConfigJsonFilePath, runtimeConfigJsonFileContent);
+            if (typeOfSourceCode == "zip")
+            {
+                ZipParser parser = new ZipParser();
+                var sourceCodes = parser.ExtractZipFile("../../../../ZipSubmissionTest/Solution.zip");
 
-			if (!emitResult.Success)
-			{
-				StringBuilder errors = new StringBuilder();
+                input = "Audi 2005\r\nBMW 2001\r\nend";
+                expectedOutput = $"Audi => 2005\r\nBMW => 2001";
 
-				IEnumerable<Diagnostic> failures = emitResult.Diagnostics
-					.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+                compilation = BuildCSharpCompilation(sourceCodes, assemblyName);
+            }
+            else if (typeOfSourceCode == "cs")
+            {
+                input = "Pesho\r\n15\r\nPlovdiv";
+                expectedOutput = $"I am Pesho - 15 years old. I am from Plovdiv.";
 
-				foreach (Diagnostic diagnostic in failures)
-				{
-					errors.AppendLine($"{diagnostic.Location.GetLineSpan()} {diagnostic.GetMessage()}");
-				}
+                string fileName = "Program.cs";
+                string filePath = $"../../../../Test/{fileName}";
+                string sourceCode = GetCSharpTestCode(filePath);
+                compilation = BuildCSharpCompilation(new List<string>() { sourceCode }, assemblyName);
+            }
 
-				Console.WriteLine("Compile time error");
-				Console.WriteLine(errors.ToString());
-				return;
-			}
+            string outputDllName = assemblyName + ".dll";
+            string dllFilePath = new FileInfo(outputDllName).FullName;
+            string workingDirectory = new FileInfo(outputDllName).DirectoryName;
+            EmitResult emitResult = compilation.Emit(outputDllName);
+            string runtimeConfigJsonFileContent = GenerateRuntimeConfigJsonFile();
+            string runtimeConfigJsonFilePath = workingDirectory + "\\" + assemblyName + ".runtimeconfig.json";
+            File.WriteAllText(runtimeConfigJsonFilePath, runtimeConfigJsonFileContent);
 
-			ProcessExecutionResult processExecutionResult = ProcessResult(input, dllFilePath).GetAwaiter().GetResult();
+            if (!emitResult.Success)
+            {
+                StringBuilder errors = new StringBuilder();
 
-			if (processExecutionResult.IsSuccesfull && processExecutionResult.Type == ProcessExecutionResultType.Success)
-			{
-				Console.WriteLine("The application was run seccessfully!");
-				Console.WriteLine(processExecutionResult.ReceivedOutput);
-				Console.WriteLine($"Is test correct: {processExecutionResult.ReceivedOutput.Trim() == expectedOutput}");
-			}
-			else
-			{
-				Console.WriteLine("Some errors occured!");
-				Console.WriteLine(processExecutionResult.ErrorOutput);
-			}
+                IEnumerable<Diagnostic> failures = emitResult.Diagnostics
+                    .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
 
-			Console.WriteLine("Process statistics");
-			Console.WriteLine($"Exit code: {processExecutionResult.ExitCode}");
-			Console.WriteLine($"Memory Used: {processExecutionResult.MemoryUsed}");
-			Console.WriteLine($"Processor time used: {processExecutionResult.TotalProcessorTime}");
-			Console.WriteLine($"Working time: {processExecutionResult.TimeWorked}");
-			Console.WriteLine($"Execution Type: {processExecutionResult.Type}");
-		}
+                foreach (Diagnostic diagnostic in failures)
+                {
+                    errors.AppendLine($"{diagnostic.Location.GetLineSpan()} {diagnostic.GetMessage()}");
+                }
 
-		private static CSharpCompilation BuildCSharpCompilation(string sourceCode, string assemblyName)
-		{
-			CSharpCompilation compilation = CSharpCompilation.Create(assemblyName)
-						.WithOptions(new CSharpCompilationOptions(OutputKind.ConsoleApplication))
-						.AddReferences(MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+                Console.WriteLine("Compile time error");
+                Console.WriteLine(errors.ToString());
+                return;
+            }
 
-			var netStandardAssembly = Assembly.Load(new AssemblyName("netstandard"));
-			compilation = compilation.AddReferences(MetadataReference.CreateFromFile(netStandardAssembly.Location));
-			AssemblyName[] netStandardAssemblies = netStandardAssembly.GetReferencedAssemblies();
+            ProcessExecutionResult processExecutionResult = ProcessResult(input, dllFilePath).GetAwaiter().GetResult();
 
-			foreach (var assembly in netStandardAssemblies)
-			{
-				string assemblyLocation = Assembly.Load(assembly).Location;
-				compilation = compilation.AddReferences(MetadataReference.CreateFromFile(assemblyLocation));
-			}
+            if (processExecutionResult.IsSuccesfull && processExecutionResult.Type == ProcessExecutionResultType.Success)
+            {
+                Console.WriteLine("The application was run seccessfully!");
+                Console.WriteLine(processExecutionResult.ReceivedOutput);
+                Console.WriteLine($"Is test correct: {processExecutionResult.ReceivedOutput.Trim() == expectedOutput}");
+            }
+            else
+            {
+                Console.WriteLine("Some errors occured!");
+                Console.WriteLine(processExecutionResult.ErrorOutput);
+            }
 
-			SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceCode);
-			compilation = compilation.AddSyntaxTrees(syntaxTree);
-			return compilation;
-		}
+            Console.WriteLine("Process statistics");
+            Console.WriteLine($"Exit code: {processExecutionResult.ExitCode}");
+            Console.WriteLine($"Memory Used: {processExecutionResult.MemoryUsed}");
+            Console.WriteLine($"Processor time used: {processExecutionResult.TotalProcessorTime}");
+            Console.WriteLine($"Working time: {processExecutionResult.TimeWorked}");
+            Console.WriteLine($"Execution Type: {processExecutionResult.Type}");
+        }
 
-		private static async Task<ProcessExecutionResult> ProcessResult(string input, string dllFilePath)
-		{
-			ProcessExecutionResult processExecutionResult = new ProcessExecutionResult();
-			string commandPromptArgument = @"/C dotnet " + dllFilePath;
+        private static CSharpCompilation BuildCSharpCompilation(IEnumerable<string> sourceCodes, string assemblyName)
+        {
+            CSharpCompilation compilation = CSharpCompilation.Create(assemblyName)
+                        .WithOptions(new CSharpCompilationOptions(OutputKind.ConsoleApplication))
+                        .AddReferences(MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
 
-			using (Process process = new Process())
-			{
-				process.StartInfo.FileName = "cmd.exe";
-				process.StartInfo.Arguments = commandPromptArgument;
-				process.StartInfo.RedirectStandardInput = true;
-				process.StartInfo.RedirectStandardOutput = true;
-				process.StartInfo.RedirectStandardError = true;
-				process.StartInfo.CreateNoWindow = true;
-				process.StartInfo.UseShellExecute = false;
+            var netStandardAssembly = Assembly.Load(new AssemblyName("netstandard"));
+            compilation = compilation.AddReferences(MetadataReference.CreateFromFile(netStandardAssembly.Location));
+            AssemblyName[] netStandardAssemblies = netStandardAssembly.GetReferencedAssemblies();
 
-				process.Start();
-				process.PriorityClass = ProcessPriorityClass.High;
-				await process.StandardInput.WriteLineAsync(input);
-				await process.StandardInput.FlushAsync();
-				process.StandardInput.Close();
-				processExecutionResult.MemoryUsed = process.PrivateMemorySize64;
-				bool exited = process.WaitForExit(ProcessMaxRunningTime);
+            foreach (var assembly in netStandardAssemblies)
+            {
+                string assemblyLocation = Assembly.Load(assembly).Location;
+                compilation = compilation.AddReferences(MetadataReference.CreateFromFile(assemblyLocation));
+            }
 
-				if (!exited)
-				{
-					process.Kill();
-					processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
-				}
+            List<SyntaxTree> syntaxTrees = new List<SyntaxTree>();
+            foreach (var sourceCode in sourceCodes)
+            {
+                syntaxTrees.Add(SyntaxFactory.ParseSyntaxTree(sourceCode));
+            }
 
-				string output = await process.StandardOutput.ReadToEndAsync();
-				string errors = await process.StandardError.ReadToEndAsync();
+            compilation = compilation.AddSyntaxTrees(syntaxTrees);
+            return compilation;
+        }
 
-				processExecutionResult.ErrorOutput = errors;
-				processExecutionResult.ReceivedOutput = output;
-				processExecutionResult.ExitCode = process.ExitCode;
-				processExecutionResult.TimeWorked = process.ExitTime - process.StartTime;
-				processExecutionResult.PrivilegedProcessorTime = process.PrivilegedProcessorTime;
-				processExecutionResult.UserProcessorTime = process.UserProcessorTime;
+        private static async Task<ProcessExecutionResult> ProcessResult(string input, string dllFilePath)
+        {
+            ProcessExecutionResult processExecutionResult = new ProcessExecutionResult();
+            string commandPromptArgument = @"/C dotnet " + dllFilePath;
 
-				if (processExecutionResult.TotalProcessorTime.TotalMilliseconds > TimeLimit)
-				{
-					processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
-				}
+            using (Process process = new Process())
+            {
+                process.StartInfo.FileName = "cmd.exe";
+                process.StartInfo.Arguments = commandPromptArgument;
+                process.StartInfo.RedirectStandardInput = true;
+                process.StartInfo.RedirectStandardOutput = true;
+                process.StartInfo.RedirectStandardError = true;
+                process.StartInfo.CreateNoWindow = true;
+                process.StartInfo.UseShellExecute = false;
 
-				if (!string.IsNullOrEmpty(processExecutionResult.ErrorOutput))
-				{
-					processExecutionResult.Type = ProcessExecutionResultType.RunTimeError;
-				}
+                process.Start();
+                process.PriorityClass = ProcessPriorityClass.High;
+                await process.StandardInput.WriteLineAsync(input);
+                await process.StandardInput.FlushAsync();
+                process.StandardInput.Close();
+                processExecutionResult.MemoryUsed = process.PrivateMemorySize64;
+                bool exited = process.WaitForExit(ProcessMaxRunningTime);
 
-				if (processExecutionResult.MemoryUsed > MemoryLimit)
-				{
-					processExecutionResult.Type = ProcessExecutionResultType.MemoryLimit;
-				}
+                if (!exited)
+                {
+                    process.Kill();
+                    processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
+                }
 
-				return processExecutionResult;
-			}
-		}
+                string output = await process.StandardOutput.ReadToEndAsync();
+                string errors = await process.StandardError.ReadToEndAsync();
 
-		private static string GenerateRuntimeConfigJsonFile()
-		{
-			var runtimeConfigJson = new
-			{
-				RuntimeOptions = new
-				{
-					Tfm = "netcoreapp2.2",
-					Framework = new
-					{
-						Name = "Microsoft.NETCore.App",
-						Version = "2.2.0"
-					}
-				}
-			};
+                processExecutionResult.ErrorOutput = errors;
+                processExecutionResult.ReceivedOutput = output;
+                processExecutionResult.ExitCode = process.ExitCode;
+                processExecutionResult.TimeWorked = process.ExitTime - process.StartTime;
+                processExecutionResult.PrivilegedProcessorTime = process.PrivilegedProcessorTime;
+                processExecutionResult.UserProcessorTime = process.UserProcessorTime;
 
-			string runtimeConfigJsonFileContent = JsonConvert.SerializeObject(runtimeConfigJson, new JsonSerializerSettings()
-			{
-				ContractResolver = new DefaultContractResolver
-				{
-					NamingStrategy = new CamelCaseNamingStrategy()
-				},
-				Formatting = Formatting.Indented
-			});
+                if (processExecutionResult.TotalProcessorTime.TotalMilliseconds > TimeLimit)
+                {
+                    processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
+                }
 
-			return runtimeConfigJsonFileContent;
-		}
+                if (!string.IsNullOrEmpty(processExecutionResult.ErrorOutput))
+                {
+                    processExecutionResult.Type = ProcessExecutionResultType.RunTimeError;
+                }
 
-		private static string GetCSharpTestCode(string filePath)
-		{
-			string source = File.ReadAllText(filePath);
-			return source;
-		}
-	}
+                if (processExecutionResult.MemoryUsed > MemoryLimit)
+                {
+                    processExecutionResult.Type = ProcessExecutionResultType.MemoryLimit;
+                }
+
+                return processExecutionResult;
+            }
+        }
+
+        private static string GenerateRuntimeConfigJsonFile()
+        {
+            var runtimeConfigJson = new
+            {
+                RuntimeOptions = new
+                {
+                    Tfm = "netcoreapp2.2",
+                    Framework = new
+                    {
+                        Name = "Microsoft.NETCore.App",
+                        Version = "2.2.0"
+                    }
+                }
+            };
+
+            string runtimeConfigJsonFileContent = JsonConvert.SerializeObject(runtimeConfigJson, new JsonSerializerSettings()
+            {
+                ContractResolver = new DefaultContractResolver
+                {
+                    NamingStrategy = new CamelCaseNamingStrategy()
+                },
+                Formatting = Formatting.Indented
+            });
+
+            return runtimeConfigJsonFileContent;
+        }
+
+        private static string GetCSharpTestCode(string filePath)
+        {
+            string source = File.ReadAllText(filePath);
+            return source;
+        }
+    }
 }
