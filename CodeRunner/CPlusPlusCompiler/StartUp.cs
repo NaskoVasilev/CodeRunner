@@ -23,15 +23,6 @@ namespace JavaCompiler
                                  cout << number;
                             }";
 
-            source = @"#include <iostream>
-                            using namespace std;
-                            int main()
-                            {  
-                                for(int i = 0; i < 10000000000000; i++)
-                                {
-                                 }
-                            }";
-
             string errors = Compile(source);
             if (!string.IsNullOrEmpty(errors.Trim()))
             {

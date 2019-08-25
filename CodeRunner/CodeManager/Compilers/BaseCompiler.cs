@@ -1,10 +1,8 @@
-﻿using CodeManager.Compilers;
-using CodeManager.Enums;
+﻿using CodeManager.Enums;
 using System;
 using System.Diagnostics;
-using System.IO;
 
-namespace CodeManager
+namespace CodeManager.Compilers
 {
     public class BaseCompiler : ICompiler
     {
@@ -23,12 +21,12 @@ namespace CodeManager
             }
         }
 
-        public virtual CompileResult Compile(string cmdArguments)
+        public virtual CompileResult Compile(CompilerArguments compilerArguments)
         {
             Process process = new Process();
             ProcessStartInfo info = new ProcessStartInfo
             {
-                Arguments = cmdArguments,
+                Arguments = compilerArguments.Arguments,
                 FileName = "cmd.exe",
                 UseShellExecute = false,
                 RedirectStandardError = true,
@@ -41,7 +39,12 @@ namespace CodeManager
             string errors = process.StandardError.ReadToEnd();
             process.WaitForExit();
 
-            return new CompileResult(errors);
+            var compileResult = new CompileResult
+            {
+                Errors = errors,
+                CompiledFilePath = compilerArguments.OutputFilePath
+            };
+            return compileResult;
         }
     }
 }

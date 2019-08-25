@@ -2,17 +2,15 @@
 {
     public class JavaCompiler : BaseCompiler
     {
-        //public override CompileResult Compile(string fileName, string cmdArguments)
-        //{
-        //    Directory.CreateDirectory(filePath);
-        //    string taskPolicy = filePath + fileName + ".policy";
-        //    File.WriteAllText(taskPolicy, "grant {};");
+        public override CompileResult Compile(CompilerArguments compilerArguments)
+        {
+            //$"/c cd C://CompiledSolutions & set PATH=%PATH%;C:\\Program Files\\Java\\jdk1.8.0_181\\bin; & javac Task.java & jar cvfe Task.jar Task Task.class",
+            compilerArguments.OutputFileExtension = CompilationConstants.JavaOutputFileExtension;
+            string fileName = compilerArguments.FileName;
+            string arguments = $"/c cd {compilerArguments.WorkingDirectory} & set PATH=%PATH%;{CompilationConstants.JavaCompilerPath}; & javac {fileName}.java & jar cvfe {fileName}{CompilationConstants.JavaOutputFileExtension} {fileName} {fileName}.class";
+            compilerArguments.Arguments = arguments;
 
-        //    string javaFile = filePath + fileName + ".java";
-        //    File.WriteAllText(javaFile, source);
-
-
-        //    return base.Compile(fileName, cmdArguments);
-        //}
+            return base.Compile(compilerArguments);
+        }
     }
 }
