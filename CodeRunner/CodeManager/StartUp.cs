@@ -4,6 +4,7 @@ using CodeManager.Executors;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace CodeManager
 {
@@ -18,7 +19,11 @@ namespace CodeManager
             string sourceFilePath = Console.ReadLine();
             string source = File.ReadAllText(sourceFilePath);
 
-            string fileName = "HelloWorld";
+            string fileName = Path.GetRandomFileName();
+            if (compilerType == CompilerType.Java)
+            {
+                fileName = GetClassName(source);
+            }
             string workingDirectory = Environment.CurrentDirectory + "\\" + Guid.NewGuid().ToString();
             Directory.CreateDirectory(workingDirectory);
 
@@ -60,6 +65,31 @@ namespace CodeManager
                 Console.WriteLine($"Execution Type: {processExecutionResult.Type}");
                 Console.WriteLine(new string('-', 50));
             }
+
+            DeleteWorkingDirectory(workingDirectory);
+        }
+
+        private static void DeleteWorkingDirectory(string workingDirectory)
+        {
+            IEnumerable<string> files = Directory.EnumerateFiles(workingDirectory);
+            foreach (string file in files)
+            {
+                File.Delete(file);
+            }
+            Directory.Delete(workingDirectory);
+        }
+
+        private static string GetClassName(string source)
+        {
+            string pattern = @"class ([^\s\n]+)(\s+|\n)";
+            Regex regex = new Regex(pattern);
+            if(!regex.IsMatch(source))
+            {
+                throw new ArgumentException("Java file has invalid class Name");
+            }
+
+            Match match = regex.Match(source);
+            return match.Groups[1].Value;
         }
 
         private static void WriteSourceToFile(string source, CompilerType compilerType, string workingDirectory, string fileName)

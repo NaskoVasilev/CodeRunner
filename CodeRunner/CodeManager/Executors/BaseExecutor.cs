@@ -1,7 +1,8 @@
-﻿using CodeManager.Enums;
-using System;
+﻿using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
+using CodeManager.Enums;
 
 namespace CodeManager.Executors
 {
@@ -41,13 +42,38 @@ namespace CodeManager.Executors
                 process.StartInfo.UseShellExecute = false;
 
                 process.Start();
-                if(!string.IsNullOrEmpty(input))
+
+                const int TimeIntervalBetweenTwoMemoryConsumptionRequests = 45;
+                var memoryTaskCancellationToken = new CancellationTokenSource();
+                var memoryTask = Task.Run(
+                    () =>
+                    {
+                        while (true)
+                        {
+                            if (process.HasExited)
+                            {
+                                return;
+                            }
+
+                            processExecutionResult.MemoryUsed = Math.Max(processExecutionResult.MemoryUsed, process.PeakWorkingSet64);
+
+                            if (memoryTaskCancellationToken.IsCancellationRequested)
+                            {
+                                return;
+                            }
+
+                            Thread.Sleep(TimeIntervalBetweenTwoMemoryConsumptionRequests);
+                        }
+                    },
+                    memoryTaskCancellationToken.Token);
+
+                if (!string.IsNullOrEmpty(input))
                 {
                     await process.StandardInput.WriteLineAsync(input);
                     await process.StandardInput.FlushAsync();
                     process.StandardInput.Close();
                 }
-                //processExecutionResult.MemoryUsed = process.PrivateMemorySize64;
+
                 bool exited = process.WaitForExit(ProcessMaxRunningTime);
 
                 if (!exited)
@@ -55,6 +81,8 @@ namespace CodeManager.Executors
                     process.Kill();
                     processExecutionResult.Type = ProcessExecutionResultType.TimeLimit;
                 }
+                // Close the memory consumption check thread
+                memoryTaskCancellationToken.Cancel();
 
                 string output = await process.StandardOutput.ReadToEndAsync();
                 string errors = await process.StandardError.ReadToEndAsync();
